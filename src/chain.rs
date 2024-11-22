@@ -1,15 +1,20 @@
+use ed25519_dalek::VerifyingKey;
+
 use crate::{block::Block, ledger::Ledger, tx::Tx};
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Chain {
     pub blocks: Vec<Block>,
     pub ledger: Ledger,
 }
 
 impl Chain {
-    pub fn new(txs: &[Tx]) -> anyhow::Result<Self> {
+    pub fn new(admin: VerifyingKey, txs: &[Tx]) -> anyhow::Result<Self> {
         let genesis = Block::init(txs)?;
-        let mut selph = Self::default();
+        let mut selph = Self {
+            blocks: Vec::new(),
+            ledger: Ledger::new(admin),
+        };
         selph.update(genesis)?;
         Ok(selph)
     }

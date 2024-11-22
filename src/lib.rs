@@ -1,5 +1,6 @@
 pub mod block;
 pub mod chain;
+pub mod key;
 pub mod ledger;
 pub mod tx;
 

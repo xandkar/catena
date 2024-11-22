@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use anyhow::bail;
+use ed25519_dalek::VerifyingKey;
 
-use crate::{block::Block, tx::Tx};
+use crate::{block::Block, tx};
 
 #[derive(Default, Debug)]
 pub struct Ledger {
@@ -10,11 +11,14 @@ pub struct Ledger {
     pub accounts: HashMap<String, u64>,
     pub messages: Vec<String>,
     pub difficulty: usize,
+    admin: VerifyingKey,
 }
 
 impl Ledger {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(admin: VerifyingKey) -> Self {
+        let mut selph = Self::default();
+        selph.admin = admin;
+        selph
     }
 
     pub fn update(&mut self, block: &Block) -> anyhow::Result<()> {
@@ -31,18 +35,21 @@ impl Ledger {
             }
         }
         for tx in &block.txs {
-            match tx {
-                Tx::Msg(msg) => self.messages.push(msg.to_string()),
-                Tx::SetDifficulty(n) => self.difficulty = *n,
-                Tx::Coinbase { .. } if block.height > 0 => {
+            if !tx.is_valid(&self.admin) {
+                bail!("Invalid signature: {tx:?}");
+            }
+            match &tx.op {
+                tx::Op::Msg(msg) => self.messages.push(msg.to_string()),
+                tx::Op::SetDifficulty(n) => self.difficulty = *n,
+                tx::Op::Coinbase { .. } if block.height > 0 => {
                     bail!("Coinbase is only allowed at Genesis.")
                 }
-                Tx::Coinbase { dst, amount } => {
+                tx::Op::Coinbase { dst, amount } => {
                     self.accounts.insert(dst.to_string(), *amount);
                 }
-                Tx::Pay { src, dst, amount } => match self.accounts.get_mut(src) {
+                tx::Op::Pay { dst, amount } => match self.accounts.get_mut(&tx.src) {
                     None => {
-                        bail!("src account not found: {src:?}");
+                        bail!("src account not found: {:?}", &tx.src);
                     }
                     Some(src_balance) if *src_balance >= *amount => {
                         *src_balance -= *amount;
@@ -54,9 +61,10 @@ impl Ledger {
                     Some(balance) => {
                         bail!(
                             "insufficient funds in src account: \
-                            src={src:?}, \
+                            src={:?}, \
                             balance={balance:?}, \
-                            amount={amount:?}."
+                            amount={amount:?}.",
+                            &tx.src
                         );
                     }
                 },
